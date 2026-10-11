@@ -1,5 +1,5 @@
 // Cloudflare Worker in front of the static site.
-// - /media/*          images from the R2 bucket
+// - /media/*          images from the R2 bucket (or public/media)
 // - /admin, /api/*    only with a valid Cloudflare Access login (checked here too,
 //                     not just at the edge), refused outright until Access is set up
 // - /api/posts...     read/write posts as commits to the GitHub repo; a push
@@ -33,7 +33,7 @@ export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (url.pathname.startsWith("/media/")) return await media(url, env);
+      if (url.pathname.startsWith("/media/")) return (await media(url, env)) ?? env.ASSETS.fetch(request);
       if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/")) {
         await requireAccess(request, env);
         if (url.pathname.startsWith("/api/")) return await api(request, url, env);
@@ -61,10 +61,10 @@ async function requireAccess(request: Request, env: Env) {
   }
 }
 
-// --- media -----------------------------------------------------------------
+// --- media: R2 first, then public/media (images added while writing locally) ----------
 async function media(url: URL, env: Env) {
   const object = await env.MEDIA.get(decodeURIComponent(url.pathname.slice("/media/".length)));
-  if (!object) return new Response("Not found", { status: 404 });
+  if (!object) return null;
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
@@ -82,7 +82,7 @@ async function api(request: Request, url: URL, env: Env) {
       throw e;
     });
     const posts = await Promise.all(
-      items.filter((i) => i.name.endsWith(".md")).map(async (i) => ({ slug: i.name.slice(0, -3), source: (await readFile(env, i.path)).source })),
+      items.filter((i) => i.name.endsWith(".md") && !i.name.startsWith("_")).map(async (i) => ({ slug: i.name.slice(0, -3), source: (await readFile(env, i.path)).source })),
     );
     return json({ posts });
   }

@@ -4,7 +4,7 @@ import Image from "@tiptap/extension-image";
 import { Placeholder } from "@tiptap/extensions";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";
-import { BubbleMenu, FloatingMenu } from "@tiptap/react/menus";
+import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { useRef, useState, type ReactNode } from "react";
 import {
@@ -27,19 +27,23 @@ import { api } from "@/lib/admin";
 
 // Rich text editor that reads and writes markdown.
 // - Markdown shortcuts work as you type: "## ", "> ", "- ", "1. ", "```".
-// - Empty line: a + menu to insert a heading, image, code, quote, list or divider.
+// - Toolbar (sticks to the top while you scroll): headings, image at the cursor,
+//   code, quote, lists, divider.
 // - Select text: bold, italic, strike, code, link, headings.
 // - Select an image: edit its caption and alt text.
 // - Drop or paste images anywhere: they upload and appear inline.
 // - Footnotes: write [^1] in the text and "[^1]: note" on its own line at the end.
 export function Editor({ initial, onChange }: { initial: string; onChange: (markdown: string) => void }) {
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [linking, setLinking] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const insertImages = async (editor: TiptapEditor, files: File[], pos?: number) => {
     const images = files.filter((f) => f.type.startsWith("image/"));
     if (!images.length) return false;
     setUploading(true);
+    setError("");
     try {
       for (const file of images) {
         const { url } = await api.upload(file);
@@ -48,7 +52,7 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
         else editor.chain().focus().insertContentAt(pos, node).run();
       }
     } catch (e) {
-      alert(`Upload failed: ${(e as Error).message}`);
+      setError(`Upload failed: ${(e as Error).message}`);
     } finally {
       setUploading(false);
     }
@@ -60,7 +64,7 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
     extensions: [
       StarterKit.configure({ heading: { levels: [2, 3] }, link: { openOnClick: false } }),
       Image,
-      Placeholder.configure({ placeholder: "Start writing. Use the + on an empty line for headings, images and more." }),
+      Placeholder.configure({ placeholder: "Start writing. The bar above adds headings, images and more." }),
       Markdown,
     ],
     content: initial,
@@ -86,11 +90,9 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
 
   if (!editor) return null;
 
-  const setLink = () => {
-    const prev = editor.getAttributes("link").href ?? "";
-    const href = prompt("Link URL (leave empty to remove)", prev);
-    if (href === null) return;
-    if (!href) editor.chain().focus().unsetLink().run();
+  const setLink = (href: string) => {
+    setLinking(false);
+    if (!href) editor.chain().focus().extendMarkRange("link").unsetLink().run();
     else editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
   };
 
@@ -101,6 +103,20 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
         shouldShow={({ editor, state }) => !state.selection.empty && !editor.isActive("image") && !editor.isActive("codeBlock")}
         className={menuCls}
       >
+        {linking ? (
+          <input
+            autoFocus
+            defaultValue={editor.getAttributes("link").href ?? ""}
+            placeholder="Paste a link, Enter to apply (empty removes it)"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setLink(e.currentTarget.value.trim());
+              if (e.key === "Escape") setLinking(false);
+            }}
+            onBlur={() => setLinking(false)}
+            className={`${fieldCls} w-80`}
+          />
+        ) : (
+          <>
         <Btn on={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} label="Bold">
           <LuBold />
         </Btn>
@@ -113,7 +129,7 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
         <Btn on={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} label="Inline code">
           <LuCode />
         </Btn>
-        <Btn on={setLink} active={editor.isActive("link")} label="Link">
+        <Btn on={() => setLinking(true)} active={editor.isActive("link")} label="Link">
           <LuLink />
         </Btn>
         <span className="mx-0.5 h-4 w-px bg-white/15" />
@@ -126,22 +142,25 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
         <Btn on={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} label="Quote">
           <LuQuote />
         </Btn>
+          </>
+        )}
       </BubbleMenu>
 
       <BubbleMenu editor={editor} shouldShow={({ editor }) => editor.isActive("image")} className={`${menuCls} w-80 flex-col items-stretch gap-1.5 p-2`}>
         <ImageFields editor={editor} />
       </BubbleMenu>
 
-      <FloatingMenu editor={editor} className={`${menuCls} -ml-2`}>
+      <div className="sticky top-16 z-10 mb-6 flex w-fit flex-wrap items-center gap-0.5 rounded-xl border border-neutral-200 bg-white/90 p-1 text-neutral-600 shadow-sm backdrop-blur dark:border-white/10 dark:bg-neutral-900/90 dark:text-neutral-300">
         <Btn on={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} label="Heading">
           <LuHeading2 />
         </Btn>
         <Btn on={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} label="Subheading">
           <LuHeading3 />
         </Btn>
-        <Btn on={() => fileInput.current?.click()} label="Image">
+        <Btn on={() => fileInput.current?.click()} label="Insert image at the cursor">
           <LuImage />
         </Btn>
+        <span className="mx-0.5 h-4 w-px bg-current opacity-15" />
         <Btn on={() => editor.chain().focus().toggleCodeBlock().run()} label="Code block">
           <LuSquareCode />
         </Btn>
@@ -157,7 +176,13 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
         <Btn on={() => editor.chain().focus().setHorizontalRule().run()} label="Divider">
           <LuMinus />
         </Btn>
-      </FloatingMenu>
+        {uploading && <span className="px-2 text-xs text-neutral-500">Uploading…</span>}
+        {error && (
+          <button onClick={() => setError("")} className="cursor-pointer px-2 text-xs text-red-500" title="Dismiss">
+            {error} ✕
+          </button>
+        )}
+      </div>
 
       <input
         ref={fileInput}
@@ -170,7 +195,6 @@ export function Editor({ initial, onChange }: { initial: string; onChange: (mark
           e.target.value = "";
         }}
       />
-      {uploading && <p className="sticky top-2 z-10 mx-auto w-fit rounded-full bg-neutral-900 px-3 py-1 text-xs text-white">Uploading image…</p>}
       <EditorContent editor={editor} />
     </div>
   );
@@ -202,7 +226,7 @@ function Btn({ on, active, label, children }: { on: () => void; active?: boolean
       onClick={on}
       title={label}
       aria-label={label}
-      className={`grid size-8 cursor-pointer place-items-center rounded-lg text-base transition-colors hover:bg-white/10 hover:text-white ${active ? "bg-white/15 text-white" : ""}`}
+      className={`grid size-8 cursor-pointer place-items-center rounded-lg text-base transition-colors hover:bg-current/10 ${active ? "bg-current/15" : ""}`}
     >
       {children}
     </button>

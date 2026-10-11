@@ -50,7 +50,7 @@ async function handle(req, res) {
   if (api !== "api") return reply(404, { error: "Not found" });
 
   if (resource === "posts" && !slug && req.method === "GET") {
-    const names = (await fs.readdir(POSTS)).filter((f) => f.endsWith(".md"));
+    const names = (await fs.readdir(POSTS)).filter((f) => f.endsWith(".md") && !f.startsWith("_"));
     const posts = await Promise.all(names.map(async (n) => ({ slug: n.slice(0, -3), source: await read(path.join(POSTS, n)) })));
     return reply(200, { posts });
   }

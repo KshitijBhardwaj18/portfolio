@@ -17,7 +17,7 @@ export async function getPost(slug: string) {
 }
 
 export async function getPosts(): Promise<PostMeta[]> {
-  const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".md"));
+  const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".md") && !f.startsWith("_")); // _.md is a placeholder
   const posts = await Promise.all(
     files.map(async (file) => {
       const slug = file.replace(/\.md$/, "");

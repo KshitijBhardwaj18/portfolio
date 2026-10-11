@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from "react";
-import { LuImagePlus, LuMonitor, LuPlus, LuSmartphone, LuTrash2, LuX } from "react-icons/lu";
+import { LuImagePlus, LuMonitor, LuPlus, LuSlidersHorizontal, LuSmartphone, LuTrash2, LuX } from "react-icons/lu";
 import { Editor } from "@/components/admin/editor";
 import { Preview } from "@/components/admin/preview";
 import { PostRow } from "@/components/post-row";
@@ -105,9 +105,9 @@ function PostList({ posts, onOpen, onNew }: { posts: Post[]; onOpen: (slug: stri
       </div>
       {tags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {tags.map(([t, n]) => (
+          {tags.map(([t]) => (
             <button key={t} onClick={() => setTag(tag === t ? null : t)} className={`cursor-pointer ${tag === t ? activeChip : tagClass}`}>
-              {t} <span className="opacity-50">{n}</span>
+              {t}
             </button>
           ))}
         </div>
@@ -186,7 +186,7 @@ function PostEditor({ slug, allPosts, onExit, onCreated }: { slug: string | null
   const save = async (publish?: boolean) => {
     if (!draft || saving.current) return;
     if (!draft.title.trim()) return setStatus("Add a title first.");
-    if (!finalSlug) return setStatus("Add a URL slug first.");
+    if (!finalSlug) return setStatus("Add a URL in Details first.");
     if (isNew && allPosts.some((p) => p.slug === finalSlug)) return setStatus(`A post at /writing/${finalSlug} already exists. Change the slug.`);
     const next = { ...draft, draft: publish === undefined ? draft.draft : !publish };
     saving.current = true;
@@ -219,7 +219,7 @@ function PostEditor({ slug, allPosts, onExit, onCreated }: { slug: string | null
   }, []);
 
   const remove = async () => {
-    if (!sha || !slug || !confirm(`Delete "${draft?.title}"? This removes the post from the site.`)) return;
+    if (!sha || !slug) return;
     try {
       await api.remove(slug, sha);
       setDirty(false);
@@ -239,15 +239,7 @@ function PostEditor({ slug, allPosts, onExit, onCreated }: { slug: string | null
 
   const editorColumn = (
     <div className="mx-auto w-full max-w-3xl">
-      <Details
-        draft={draft}
-        update={update}
-        isNew={isNew}
-        slug={finalSlug ?? ""}
-        onSlug={(s) => (setNewSlug(slugify(s)), setSlugTouched(true))}
-        tagStats={tagStats}
-        categoryTags={categoryTags}
-      />
+      <Heading draft={draft} update={update} />
       <div className="mt-8">
         <Editor initial={draft.body} onChange={(body) => update({ body })} />
       </div>
@@ -268,9 +260,15 @@ function PostEditor({ slug, allPosts, onExit, onCreated }: { slug: string | null
     <Shell
       bar={
         <>
-          <button onClick={() => (!dirty || confirm("Leave without saving?")) && onExit()} className={ghostBtn}>
-            ← Posts
-          </button>
+          {dirty ? (
+            <ConfirmButton onConfirm={onExit} ask="Discard changes?" className={ghostBtn}>
+              ← Posts
+            </ConfirmButton>
+          ) : (
+            <button onClick={onExit} className={ghostBtn}>
+              ← Posts
+            </button>
+          )}
           <span className="mr-auto truncate text-xs text-neutral-500">{status || (dirty ? "Unsaved changes" : "")}</span>
           <Segmented value={mode} options={["write", "split", "preview"]} onChange={setMode} />
           {mode !== "write" && (
@@ -278,10 +276,24 @@ function PostEditor({ slug, allPosts, onExit, onCreated }: { slug: string | null
               {phone ? <LuMonitor /> : <LuSmartphone />}
             </button>
           )}
+          <button popoverTarget="post-details" className={ghostBtn}>
+            <LuSlidersHorizontal /> Details
+          </button>
+          <div id="post-details" popover="auto" className="fixed inset-auto top-16 right-5 m-0 w-[min(30rem,calc(100vw-2.5rem))] overflow-visible rounded-2xl border border-neutral-200 bg-white p-5 text-neutral-900 shadow-2xl dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100">
+            <Details
+              draft={draft}
+              update={update}
+              isNew={isNew}
+              slug={finalSlug ?? ""}
+              onSlug={(s) => (setNewSlug(slugify(s)), setSlugTouched(true))}
+              tagStats={tagStats}
+              categoryTags={categoryTags}
+            />
+          </div>
           {!isNew && (
-            <button onClick={remove} className={ghostBtn} title="Delete post">
+            <ConfirmButton onConfirm={remove} ask="Delete post?" className={ghostBtn} title="Delete post">
               <LuTrash2 />
-            </button>
+            </ConfirmButton>
           )}
           <button onClick={() => save(false)} className={ghostBtn}>
             {draft.draft ? "Save draft" : "Unpublish"}
@@ -304,41 +316,27 @@ function PostEditor({ slug, allPosts, onExit, onCreated }: { slug: string | null
   );
 }
 
-// --- post details: title, subtitle, category, tags, date, cover, slug --------------
-function Details({
-  draft,
-  update,
-  isNew,
-  slug,
-  onSlug,
-  tagStats,
-  categoryTags,
-}: {
-  draft: Draft;
-  update: (p: Partial<Draft>) => void;
-  isNew: boolean;
-  slug: string;
-  onSlug: (s: string) => void;
-  tagStats: [string, number][];
-  categoryTags: Set<string>;
-}) {
+// --- cover, title, subtitle: written inline, above the body ------------------------
+function Heading({ draft, update }: { draft: Draft; update: (p: Partial<Draft>) => void }) {
   const coverInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
 
   const uploadCover = async (file?: File) => {
     if (!file) return;
     setUploading(true);
+    setError("");
     try {
       update({ cover: (await api.upload(file)).url });
     } catch (e) {
-      alert(`Upload failed: ${(e as Error).message}`);
+      setError(`Upload failed: ${(e as Error).message}`);
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <div>
+    <div className="mb-8">
       {draft.cover ? (
         <div className="group relative mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -357,6 +355,7 @@ function Details({
           <LuImagePlus /> {uploading ? "Uploading…" : "Add cover image"}
         </button>
       )}
+      {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
       <input ref={coverInput} type="file" accept="image/*" hidden onChange={(e) => (uploadCover(e.target.files?.[0]), (e.target.value = ""))} />
 
       {/* Textareas that grow with their text, so long titles wrap instead of scrolling */}
@@ -374,18 +373,40 @@ function Details({
         rows={1}
         className="field-sizing-content mt-2 w-full resize-none bg-transparent text-lg text-neutral-600 placeholder:text-neutral-300 focus:outline-none dark:text-neutral-400 dark:placeholder:text-neutral-700"
       />
+    </div>
+  );
+}
 
-      <div className="mt-6 grid gap-4 rounded-2xl border border-neutral-200 p-4 text-sm sm:grid-cols-[auto_1fr] sm:items-center sm:gap-x-6 dark:border-white/10">
-        <Label>Category</Label>
+// --- category, tags, date, URL: in the Details popover ----------------------------
+function Details({
+  draft,
+  update,
+  isNew,
+  slug,
+  onSlug,
+  tagStats,
+  categoryTags,
+}: {
+  draft: Draft;
+  update: (p: Partial<Draft>) => void;
+  isNew: boolean;
+  slug: string;
+  onSlug: (s: string) => void;
+  tagStats: [string, number][];
+  categoryTags: Set<string>;
+}) {
+  return (
+    <div className="grid gap-4 text-sm">
+      <Field label="Category">
         <Segmented value={draft.category} options={[...CATEGORIES]} onChange={(category) => update({ category })} />
-
-        <Label>Tags</Label>
+      </Field>
+      <Field label="Tags">
         <TagInput value={draft.tags} onChange={(tags) => update({ tags })} stats={tagStats} preferred={categoryTags} />
-
-        <Label>Date</Label>
+      </Field>
+      <Field label="Date">
         <input type="date" value={draft.date} onChange={(e) => update({ date: e.target.value })} className={`${inputCls} w-fit`} />
-
-        <Label>URL</Label>
+      </Field>
+      <Field label="URL">
         <div className="flex items-center gap-1 text-neutral-500">
           /writing/
           {isNew ? (
@@ -394,7 +415,7 @@ function Details({
             <span className="text-neutral-900 dark:text-neutral-100">{slug}</span>
           )}
         </div>
-      </div>
+      </Field>
     </div>
   );
 }
@@ -430,14 +451,14 @@ function TagInput({ value, onChange, stats, preferred }: { value: string[]; onCh
           value={text}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onBlur={() => (setOpen(false), text.trim() && add(text))}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
               add(text);
             } else if (e.key === "Backspace" && !text && value.length) onChange(value.slice(0, -1));
           }}
-          placeholder={value.length ? "" : "memory, agents…"}
+          placeholder={value.length ? "Add another" : "Type a tag, press Enter"}
           className="min-w-24 flex-1 bg-transparent focus:outline-none"
         />
       </div>
@@ -471,7 +492,7 @@ function countTags(posts: Draft[]): [string, number][] {
 
 function Segmented<T extends string>({ value, options, onChange }: { value: T; options: readonly T[]; onChange: (v: T) => void }) {
   return (
-    <div className="inline-flex rounded-full border border-neutral-200 bg-neutral-50 p-0.5 dark:border-white/10 dark:bg-neutral-900">
+    <div className="inline-flex w-fit rounded-full border border-neutral-200 bg-neutral-50 p-0.5 dark:border-white/10 dark:bg-neutral-900">
       {options.map((o) => (
         <button
           key={o}
@@ -487,7 +508,32 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
   );
 }
 
-const Label = ({ children }: { children: ReactNode }) => <span className="text-xs font-medium tracking-wider text-neutral-500 uppercase">{children}</span>;
+const Field = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="grid gap-1.5">
+    <span className="text-xs font-medium tracking-wider text-neutral-500 uppercase">{label}</span>
+    {children}
+  </div>
+);
+
+// Asks on the first click, acts on the second. In-page instead of confirm(),
+// which some browsers (and embedded previews) silently block.
+function ConfirmButton({ onConfirm, ask, className, title, children }: { onConfirm: () => void; ask: string; className: string; title?: string; children: ReactNode }) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        if (armed) return onConfirm();
+        setArmed(true);
+        setTimeout(() => setArmed(false), 3000);
+      }}
+      onBlur={() => setArmed(false)}
+      title={title}
+      className={`${className} ${armed ? "bg-red-500/10 text-red-500 hover:bg-red-500/15 hover:text-red-500 dark:text-red-400" : ""}`}
+    >
+      {armed ? ask : children}
+    </button>
+  );
+}
 
 const inputCls = "rounded-lg border border-neutral-200 bg-transparent px-2.5 py-1.5 focus:border-neutral-400 focus:outline-none dark:border-white/10 dark:focus:border-white/30";
 const activeChip = "rounded-md bg-neutral-900 px-2 py-0.5 text-xs text-white dark:bg-white dark:text-black";
