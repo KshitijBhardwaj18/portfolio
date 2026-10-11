@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "deploy": "next build && wrangler deploy",
+    "deploy": "next build && wrangler deploy && wrangler deploy --env admin",
     "admin:api": "node scripts/admin-dev-server.mjs",
     "preview": "next build && wrangler dev"
   },

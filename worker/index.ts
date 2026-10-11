@@ -1,21 +1,28 @@
-// Cloudflare Worker in front of the static site.
-// - /media/*          images from the R2 bucket (or public/media)
-// - /admin, /api/*    only with a valid Cloudflare Access login (checked here too,
-//                     not just at the edge), refused outright until Access is set up
-// - /api/posts...     read/write posts as commits to the GitHub repo; a push
-//                     triggers the Cloudflare build, which publishes the site
-// - everything else   the static site in ./out
-// Same API as scripts/admin-dev-server.mjs, which the admin uses locally.
+// One Worker script, deployed twice (see wrangler.jsonc):
+//
+// portfolio        the public site. /media/* from R2 (or public/media), everything
+//                  else static. No /admin, no /api. Also exports AdminApi, which
+//                  holds the GitHub token and is reachable only through a service
+//                  binding, never from the internet.
+// portfolio-admin  the whole Worker sits behind Cloudflare Access. It checks the
+//                  Access login itself too, then serves /admin and forwards /api
+//                  to AdminApi.
+//
+// The API reads/writes posts as commits to the GitHub repo; a push triggers the
+// Cloudflare build, which publishes the site. Same API as
+// scripts/admin-dev-server.mjs, which the admin uses locally.
+import { WorkerEntrypoint } from "cloudflare:workers";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 interface Env {
   ASSETS: Fetcher;
   MEDIA: R2Bucket;
-  GITHUB_TOKEN: string; // secret: fine-grained token, Contents read/write on GITHUB_REPO only
+  GITHUB_TOKEN: string; // secret on portfolio: fine-grained token, Contents read/write on GITHUB_REPO only
   GITHUB_REPO: string; // "owner/name"
   GITHUB_BRANCH: string;
-  ACCESS_TEAM_DOMAIN: string; // e.g. https://kshitij.cloudflareaccess.com
-  ACCESS_AUD: string; // the Access application's audience tag
+  SITE?: Fetcher; // portfolio-admin only: service binding to AdminApi
+  ACCESS_TEAM_DOMAIN?: string; // portfolio-admin only, e.g. https://team.cloudflareaccess.com
+  ACCESS_AUD?: string; // portfolio-admin only: the Access application's audience tag
 }
 
 const POSTS_DIR = "src/content/writing";
@@ -34,10 +41,13 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith("/media/")) return (await media(url, env)) ?? env.ASSETS.fetch(request);
-      if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/")) {
-        await requireAccess(request, env);
-        if (url.pathname.startsWith("/api/")) return await api(request, url, env);
-      }
+      const adminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/");
+      if (!env.SITE) return adminPath ? new Response("Not found", { status: 404 }) : env.ASSETS.fetch(request);
+
+      // portfolio-admin
+      await requireAccess(request, env);
+      if (url.pathname.startsWith("/api/")) return env.SITE.fetch(request);
+      if (url.pathname === "/") return Response.redirect(new URL("/admin", url).href, 302);
       return env.ASSETS.fetch(request);
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
@@ -46,16 +56,28 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+// Only reachable through portfolio-admin's service binding (after its Access check).
+export class AdminApi extends WorkerEntrypoint<Env> {
+  async fetch(request: Request) {
+    try {
+      return await api(request, new URL(request.url), this.env);
+    } catch (e) {
+      return json({ error: (e as Error).message }, e instanceof HttpError ? e.status : 500);
+    }
+  }
+}
+
 // --- auth: verify the Cloudflare Access JWT ------------------------------------
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 
 async function requireAccess(request: Request, env: Env) {
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) throw new HttpError(503, "Admin is not configured: set up Cloudflare Access (see ADMIN.md).");
+  const team = env.ACCESS_TEAM_DOMAIN;
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token) throw new HttpError(401, "Not signed in.");
-  jwks ??= createRemoteJWKSet(new URL(`${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`));
+  jwks ??= createRemoteJWKSet(new URL(`${team}/cdn-cgi/access/certs`));
   try {
-    await jwtVerify(token, jwks, { issuer: env.ACCESS_TEAM_DOMAIN, audience: env.ACCESS_AUD });
+    await jwtVerify(token, jwks, { issuer: team, audience: env.ACCESS_AUD });
   } catch {
     throw new HttpError(403, "Invalid sign-in. Reload the page to sign in again.");
   }

@@ -4,9 +4,12 @@
 `src/content/writing/`; the admin just reads and writes those files.
 
 ```
-/admin (browser) ──► /api ──► GitHub commit ──► Cloudflare rebuilds ──► live (~1 min)
-                       └────► images in R2, served at /media/...
+portfolio-admin.kshitij-ghss.workers.dev/admin   (behind Cloudflare Access)
+   └─ /api ─► portfolio (internal service binding) ─► GitHub commit ─► rebuild ─► live (~1 min)
+                                                 └──► images in R2, served at /media/...
 ```
+
+Live admin: **https://portfolio-admin.kshitij-ghss.workers.dev/admin**
 
 ## Writing locally
 
@@ -20,54 +23,28 @@ posts to `src/content/writing` and images to `public/media`.
 Locally nothing is committed or published: you get files on disk, and drafts
 (`draft: true`) show up on the dev site but never in a production build.
 
-## Going live (one-time setup)
+## How it's deployed (already set up)
 
-1. **Deploy from GitHub.** Push the repo, then in the Cloudflare dashboard:
-   Workers & Pages → Create → Import a repository → `portfolio`.
-   - Build command: `pnpm build`
-   - Deploy command: `npx wrangler deploy`
-
-   Every push to `main` now rebuilds and deploys the site.
-
-2. **Image storage.**
-
-   ```bash
-   npx wrangler r2 bucket create portfolio-media
-   ```
-
-3. **GitHub token for saving posts.** GitHub → Settings → Developer settings →
-   Fine-grained tokens → Generate:
-   - Repository access: only `KshitijBhardwaj18/portfolio`
-   - Permissions: **Contents: Read and write** (nothing else)
-
-   Then store it as a Worker secret (it's never in the code):
-
-   ```bash
-   npx wrangler secret put GITHUB_TOKEN
-   ```
-
-4. **Login (Cloudflare Access).** Cloudflare dashboard → Zero Trust → Access →
-   Applications → Add → Self-hosted:
-   - Domain: your site's domain, two entries: path `admin` and path `api`
-   - Policy: Allow → Emails → your email
-   - Login method: One-time PIN (a code is emailed to you)
-
-   From the application's overview, copy the **Application Audience (AUD) tag**,
-   and from Zero Trust → Settings, your **team domain**
-   (`https://<team>.cloudflareaccess.com`). Put both in `wrangler.jsonc`:
-
-   ```jsonc
-   "ACCESS_TEAM_DOMAIN": "https://<team>.cloudflareaccess.com",
-   "ACCESS_AUD": "<aud tag>"
-   ```
-
-   Commit and push. Until both are set, `/admin` and `/api` answer
-   "Admin is not configured" to everyone.
+- **Two Workers from one script** (`worker/index.ts`, `wrangler.jsonc`):
+  - `portfolio`: the public site. It has no `/admin` or `/api`. It also holds the
+    `GITHUB_TOKEN` secret and exports `AdminApi`, which is reachable only through
+    a service binding, never from the internet.
+  - `portfolio-admin`: the same static files plus `/admin`. The whole Worker sits
+    behind Cloudflare Access, and it forwards `/api` to `AdminApi`.
+- **Builds:** every push to `main` runs `pnpm run build`, then
+  `npx wrangler deploy && npx wrangler deploy --env admin`.
+- **Login:** Zero Trust → Access → Applications → "Portfolio admin" (team
+  `young-fire-f72a`). It covers the `portfolio-admin` Worker, with the policy
+  "Only me" (kshitij.ghss@gmail.com). Its audience tag is `ACCESS_AUD` under
+  `env.admin` in `wrangler.jsonc`.
+- **Images:** R2 bucket `portfolio-media`.
+- **Token:** `npx wrangler secret put GITHUB_TOKEN --name portfolio` (a
+  fine-grained token: this repo only, Contents read/write).
 
 ## Safety
 
-- The Worker checks the Access login on every `/admin` and `/api` request itself,
-  so a misconfigured Access app can't expose the API.
+- The admin Worker checks the Access login on every request itself, so a
+  misconfigured Access app can't expose the API. The public Worker has no API route at all.
 - The GitHub token can only touch this one repo's files.
 - Saving an edited post sends the version you opened; if it changed since
   (say, edited from another device), the save is refused instead of overwriting.

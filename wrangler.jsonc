@@ -1,3 +1,6 @@
+// One script, two Workers (see worker/index.ts):
+//   npx wrangler deploy              -> portfolio        (public site)
+//   npx wrangler deploy --env admin  -> portfolio-admin  (behind Cloudflare Access)
 {
   "name": "portfolio",
   "main": "worker/index.ts",
@@ -6,16 +9,30 @@
     "directory": "./out",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    // These go through the Worker first (images, and the login check for the admin).
+    // Images, and keeping /admin and /api off the public site.
     "run_worker_first": ["/api/*", "/media/*", "/admin", "/admin/*"]
   },
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portfolio-media" }],
-  "vars": {
-    "GITHUB_REPO": "KshitijBhardwaj18/portfolio",
-    "GITHUB_BRANCH": "main",
-    // Filled in after Cloudflare Access is set up (see ADMIN.md). Empty = admin locked.
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": ""
+  "vars": { "GITHUB_REPO": "KshitijBhardwaj18/portfolio", "GITHUB_BRANCH": "main" },
+  // Secret on portfolio only, set with: npx wrangler secret put GITHUB_TOKEN
+
+  "env": {
+    "admin": {
+      "name": "portfolio-admin",
+      "assets": {
+        "directory": "./out",
+        "binding": "ASSETS",
+        "not_found_handling": "404-page",
+        "run_worker_first": true // every request gets the Access check
+      },
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portfolio-media" }],
+      "services": [{ "binding": "SITE", "service": "portfolio", "entrypoint": "AdminApi" }],
+      "vars": {
+        "GITHUB_REPO": "KshitijBhardwaj18/portfolio",
+        "GITHUB_BRANCH": "main",
+        "ACCESS_TEAM_DOMAIN": "https://young-fire-f72a.cloudflareaccess.com",
+        "ACCESS_AUD": "258d9c5b569644804021a9ef18732f790aecccffc4e86c88fee92a32f47dc59f" // the Access application's audience tag
+      }
+    }
   }
-  // Secret, set with: npx wrangler secret put GITHUB_TOKEN
 }
