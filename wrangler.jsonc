@@ -1,5 +1,21 @@
 {
   "name": "portfolio",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./out", "not_found_handling": "404-page" }
+  "assets": {
+    "directory": "./out",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // These go through the Worker first (images, and the login check for the admin).
+    "run_worker_first": ["/api/*", "/media/*", "/admin", "/admin/*"]
+  },
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portfolio-media" }],
+  "vars": {
+    "GITHUB_REPO": "KshitijBhardwaj18/portfolio",
+    "GITHUB_BRANCH": "main",
+    // Filled in after Cloudflare Access is set up (see ADMIN.md). Empty = admin locked.
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  }
+  // Secret, set with: npx wrangler secret put GITHUB_TOKEN
 }
