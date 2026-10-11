@@ -31,8 +31,10 @@ Locally nothing is committed or published: you get files on disk, and drafts
     a service binding, never from the internet.
   - `portfolio-admin`: the same static files plus `/admin`. The whole Worker sits
     behind Cloudflare Access, and it forwards `/api` to `AdminApi`.
-- **Builds:** every push to `main` runs `pnpm run build`, then
-  `npx wrangler deploy && npx wrangler deploy --env admin`.
+- **Builds:** each Worker has its own Workers Build on this repo. Every push to
+  `main` runs `pnpm run build` for both, then `npx wrangler deploy` (portfolio)
+  and `npx wrangler deploy --env admin` (portfolio-admin). Keep them separate:
+  a build always deploys onto the Worker it's connected to, whatever the config says.
 - **Login:** Zero Trust → Access → Applications → "Portfolio admin" (team
   `young-fire-f72a`). It covers the `portfolio-admin` Worker, with the policy
   "Only me" (kshitij.ghss@gmail.com). Its audience tag is `ACCESS_AUD` under
