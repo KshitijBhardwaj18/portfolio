@@ -17,6 +17,14 @@ const FINGERS = [[0, 1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16
 const PALM = [0, 1, 5, 9, 13, 17];
 const BOX_W = 192; // camera box, css px (4:3)
 const BOX_H = 144;
+// Motion: things arrive easing out and leave easing in, state changes ease in-out,
+// and the spring overshoots a touch for playful pops.
+export const EASE = {
+  enter: "cubic-bezier(0.16, 1, 0.3, 1)",
+  exit: "cubic-bezier(0.55, 0, 1, 0.45)",
+  move: "cubic-bezier(0.65, 0, 0.35, 1)",
+  spring: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+};
 
 type Lines = Record<"hi" | "scroll" | "cross" | "poke" | "dodge" | "hot" | "caught" | "free", string[]>;
 type Spec = { name: string; model: string; jets: number[][]; cruise: number; lines: Lines };
@@ -100,6 +108,8 @@ export function Heroes({ batman }: { batman: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const handRef = useRef<HTMLCanvasElement>(null);
   const hintRef = useRef<HTMLSpanElement>(null);
+  const scanRef = useRef<HTMLSpanElement>(null);
+  const countRef = useRef<HTMLSpanElement>(null);
   const game = useRef<{ start: (i: number) => void; stop: () => void; setBatman: (on: boolean) => void }>({
     start: () => {},
     stop: () => {},
@@ -119,6 +129,10 @@ export function Heroes({ batman }: { batman: boolean }) {
     const video = videoRef.current!;
     const hcv = handRef.current!;
     const hctx = hcv.getContext("2d")!;
+    const dialog = cv.parentElement!; // the game: overlay, camera box and HUD
+    const hintEl = hintRef.current!;
+    const scan = scanRef.current!;
+    const count = countRef.current!;
     const root = document.documentElement;
     const overflow = root.style.overflow;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -143,10 +157,13 @@ export function Heroes({ batman }: { batman: boolean }) {
     const heroes = HEROES.map((spec, i) => ({
       spec, i, on: i === 0, leaving: false, loading: false,
       fig: figRefs.current[i]!, poke: pokeRefs.current[i]!, bubble: bubbleRefs.current[i]!,
+      // the bubble holds the line, then its tail
+      text: bubbleRefs.current[i]!.firstElementChild as HTMLElement, tail: bubbleRefs.current[i]!.lastElementChild as HTMLElement,
       gl: undefined as Awaited<ReturnType<typeof createHero>> | undefined,
       x: i ? -SIZE : W + SIZE, y: H * (i ? 0.18 : 0.82), vx: 0, vy: 0, mode: "pet" as Mode, until: 0,
       tx: 0, ty: 0, retarget: 0, react: 0, heat: 0, homeY: H * (i ? 0.18 : 0.82), wander: start0 + rand(5000, 9000),
-      lean: 0, turn: 0, flip: 0, roll: 0, spin: 0, quipUntil: 0, bubbleW: 0,
+      lean: 0, turn: 0, flip: 0, roll: 0, spin: 0, quipUntil: 0, bubbleW: 0, bubbleH: 0,
+      below: false, talking: false, anim: undefined as Animation | undefined,
     }));
     type Hero = (typeof heroes)[number];
 
@@ -162,7 +179,7 @@ export function Heroes({ batman }: { batman: boolean }) {
 
     const cursor = { x: -1, y: -1, movedAt: -1e9 };
     const hand = {
-      x: 0, y: 0, lastX: 0, lastY: 0, vx: 0, vy: 0, seenAt: -1e9, pinch: false, pinchAt: 0,
+      x: 0, y: 0, lastX: 0, lastY: 0, vx: 0, vy: 0, seenAt: -1e9, pinch: false, pinchAt: 0, squeeze: 0,
       lm: null as NormalizedLandmark[] | null,
     };
     const bits: { x: number; y: number; vx: number; vy: number; t: number; life: number; c: string; s: number }[] = [];
@@ -175,12 +192,23 @@ export function Heroes({ batman }: { batman: boolean }) {
     const chat = { next: start0 + 4000, reply: null as { h: Hero; line: string; at: number } | null };
     let entrance = false; // Batman just arrived: Iron Man gets a comeback
 
+    // Bubbles pop in on a spring from the speaker, again for every new line, and fade out.
+    const pop = (h: Hero, on: boolean) => {
+      h.talking = on;
+      h.bubble.style.opacity = on ? "1" : "0";
+      h.anim?.cancel();
+      const from = still ? "none" : `translateY(${h.below ? -4 : 4}px) scale(0.9)`;
+      h.anim = on
+        ? h.bubble.animate({ opacity: [0, 1], transform: [from, "none"] }, { duration: 200, easing: EASE.spring })
+        : h.bubble.animate({ opacity: [1, 0] }, { duration: 150, easing: EASE.exit });
+    };
     const say = (h: Hero, lines: string[], now: number, chance = 1) => {
       if (Math.random() > chance) return;
-      h.bubble.textContent = pick(lines);
+      h.text.textContent = pick(lines);
       h.bubbleW = h.bubble.offsetWidth;
-      h.bubble.style.opacity = "1";
+      h.bubbleH = h.bubble.offsetHeight;
       h.quipUntil = now + 1800;
+      pop(h, true);
     };
     const idle = () => heroes.filter((h) => h.on && !h.leaving && h.mode === "pet");
 
@@ -233,6 +261,29 @@ export function Heroes({ batman }: { batman: boolean }) {
     let stream: MediaStream | undefined;
     let tracker: HandLandmarker | undefined;
 
+    // The game comes in: the tint fades up, the HUD drops from the top, the camera
+    // box rises from the bottom (each part's data-away says from where). Leaving
+    // reverses from wherever they are; the dialog is inert meanwhile so it never
+    // swallows a click, and stays mounted until the exit has played.
+    let exits: Animation[] = [];
+    const show = (on: boolean) => {
+      dialog.inert = !on;
+      if (on) for (const a of exits) a.cancel();
+      const anims = (Array.from(dialog.children) as HTMLElement[]).map((el) => {
+        const away = { opacity: 0, transform: still ? "none" : el.dataset.away! };
+        return on
+          ? el.animate([away, {}], { duration: 300, easing: EASE.enter })
+          : el.animate([{}, away], { duration: 200, easing: EASE.exit, fill: "forwards" });
+      });
+      if (on) return;
+      exits = anims;
+      anims[0].onfinish = () => setPlaying(null);
+    };
+    // Camera box while the camera and hand model start: a line sweeps it (pulses, for reduced motion).
+    const scanning = scan.animate(still ? { opacity: [0.3, 1] } : { transform: ["none", `translateY(${BOX_H - 1}px)`] }, {
+      duration: 1400, iterations: Infinity, direction: "alternate", easing: EASE.move,
+    });
+
     const start = (i: number) => {
       if (target) return;
       if (!heroes[i].on || heroes[i].leaving) return;
@@ -243,6 +294,9 @@ export function Heroes({ batman }: { batman: boolean }) {
       camFailed = false;
       setCaught(0);
       setPlaying(h.spec.name);
+      show(true);
+      // Poke feedback: a quick squash before he takes off.
+      if (!still) h.fig.animate({ transform: ["none", "scale(1.12, 0.88)", "none"] }, { duration: 150, easing: EASE.move });
       root.style.overflow = "hidden";
       Object.assign(hand, { pinch: false, seenAt: -1e9, lm: null });
       Object.assign(h, { mode: "fly", react: 0, heat: 0 });
@@ -285,7 +339,7 @@ export function Heroes({ batman }: { batman: boolean }) {
       hand.lm = null;
       bits.length = 0;
       root.style.overflow = overflow;
-      setPlaying(null);
+      show(false); // and setPlaying(null) once it has played out
     };
     // The footer's bat: Batman glides in from his side, or says goodbye and flies off.
     const setBatman = (on: boolean) => {
@@ -397,6 +451,7 @@ export function Heroes({ batman }: { batman: boolean }) {
         h.mode = "held";
         h.roll = 0;
         setCaught(++score);
+        if (!still) count.animate({ transform: ["scale(0.6)", "none"] }, { duration: 250, easing: EASE.spring });
         say(h, h.spec.lines.caught, now);
         burst(h, 24);
       }
@@ -463,6 +518,8 @@ export function Heroes({ batman }: { batman: boolean }) {
     const update = (now: number, dt: number) => {
       const visible = now - hand.seenAt < 400;
       if (!visible) hand.pinch = false;
+      // The cursor ring eases between open and pinched (~150ms) instead of snapping.
+      hand.squeeze += ((hand.pinch ? 1 : 0) - hand.squeeze) * (still ? 1 : Math.min(1, dt * 20));
       if (dt > 0) {
         hand.vx += ((hand.x - hand.lastX) / dt - hand.vx) * 0.3;
         hand.vy += ((hand.y - hand.lastY) / dt - hand.vy) * 0.3;
@@ -524,14 +581,19 @@ export function Heroes({ batman }: { batman: boolean }) {
 
       const next = !tracker ? (camFailed ? "no camera · hands only" : "starting camera…")
         : !hand.lm ? "show your hand to the camera" : hand.pinch ? "pinching" : "pinch to grab";
-      if (next !== hint && hintRef.current) hintRef.current.textContent = hint = next;
+      if (next !== hint) {
+        hintEl.textContent = hint = next;
+        hintEl.toggleAttribute("data-error", camFailed && !tracker);
+        scan.hidden = !!tracker || camFailed;
+      }
     };
 
     const draw = (now: number) => {
+      // Positions go in `translate`, leaving `transform` free for the pops and squashes.
       for (const h of heroes) {
+        if (h.talking && (!h.on || now > h.quipUntil)) pop(h, false);
         if (!h.on) {
-          h.fig.style.transform = h.poke.style.transform = "translate(-999px, -999px)";
-          h.bubble.style.opacity = "0";
+          h.fig.style.translate = h.poke.style.translate = "-999px -999px";
           continue;
         }
         const speed = Math.hypot(h.vx, h.vy);
@@ -540,11 +602,15 @@ export function Heroes({ batman }: { batman: boolean }) {
         const bob = still || (h.mode !== "pet" && h.mode !== "fly") ? 0 : glide ? Math.sin(now / 600 + 1) * 6 : Math.sin(now / 300) * 3;
         const x = h.x, y = h.y + bob;
         h.gl?.render({ lean: h.lean, turn: h.turn + h.roll, flip: h.flip, thrust });
-        h.fig.style.transform = `translate(${x - SIZE / 2}px, ${y - SIZE / 2}px)`;
-        h.poke.style.transform = `translate(${x - 32}px, ${y - 32}px)`;
-        if (now > h.quipUntil) h.bubble.style.opacity = "0";
-        const by = y - 92 < 8 ? y + 62 : y - 92;
-        h.bubble.style.transform = `translate(${clamp(x - h.bubbleW / 2, 8, W - h.bubbleW - 8)}px, ${by}px)`;
+        h.fig.style.translate = `${x - SIZE / 2}px ${y - SIZE / 2}px`;
+        h.poke.style.translate = `${x - 32}px ${y - 32}px`;
+        // Bubble above his head (below him near the top edge), its tail pointing at him.
+        h.below = y - 92 < 8;
+        const bx = clamp(x - h.bubbleW / 2, 8, W - h.bubbleW - 8);
+        const tip = clamp(x - bx, 16, h.bubbleW - 16);
+        h.bubble.style.translate = `${bx}px ${h.below ? y + 62 : y - 92}px`;
+        h.bubble.style.transformOrigin = `${tip}px ${h.below ? "0" : "100%"}`;
+        h.tail.style.transform = h.below ? `translate(${tip - 6}px, ${-h.bubbleH - 6}px) scaleY(-1)` : `translateX(${tip - 6}px)`;
       }
 
       if (!target) return;
@@ -558,11 +624,12 @@ export function Heroes({ batman }: { batman: boolean }) {
       ctx.globalAlpha = 1;
 
       if (now - hand.seenAt < 400) {
+        const s = hand.squeeze; // 0 open: dashed gold ring; 1 pinched: solid red, smaller
         ctx.lineWidth = 2;
-        ctx.strokeStyle = hand.pinch ? "#ef4444" : "#f0b13a";
-        ctx.setLineDash(hand.pinch ? [] : [5, 6]);
+        ctx.strokeStyle = `rgb(${240 - s}, ${177 - 109 * s}, ${58 + 10 * s})`;
+        ctx.setLineDash([5 + 6 * s, 6 - 6 * s]);
         ctx.beginPath();
-        ctx.arc(hand.x, hand.y, hand.pinch ? REACH * 0.55 : REACH, 0, TAU);
+        ctx.arc(hand.x, hand.y, REACH * (1 - 0.45 * s), 0, TAU);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = ctx.strokeStyle;
@@ -593,8 +660,8 @@ export function Heroes({ batman }: { batman: boolean }) {
       hctx.globalCompositeOperation = "destination-out";
       shape(finger);
       hctx.globalCompositeOperation = "source-over";
-      if (hand.pinch) {
-        hctx.globalAlpha = 0.3;
+      if (hand.squeeze > 0.02) {
+        hctx.globalAlpha = 0.3 * hand.squeeze;
         shape(finger);
         hctx.globalAlpha = 1;
       }
@@ -615,6 +682,7 @@ export function Heroes({ batman }: { batman: boolean }) {
     return () => {
       alive = false;
       stop();
+      scanning.cancel();
       for (const h of heroes) h.gl?.dispose();
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
@@ -639,8 +707,8 @@ export function Heroes({ batman }: { batman: boolean }) {
             aria-label={`Poke ${h.name} to play catch`}
             onClick={() => game.current.start(i)}
             hidden={playing === h.name || (i === 1 && !batman)}
-            className="fixed top-0 left-0 z-40 size-16 cursor-pointer rounded-full"
-            style={{ transform: "translate(-999px, -999px)" }}
+            className="fixed top-0 left-0 z-40 size-16 cursor-pointer rounded-full outline-amber-400 before:absolute before:inset-0 before:rounded-full before:bg-amber-400/15 before:opacity-0 before:ring-1 before:ring-amber-400/50 before:transition-opacity before:duration-150 before:ease-[cubic-bezier(0.16,1,0.3,1)] hover:before:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:before:opacity-100"
+            style={{ translate: "-999px -999px" }}
           />
           <canvas
             ref={(el) => {
@@ -648,36 +716,43 @@ export function Heroes({ batman }: { batman: boolean }) {
             }}
             aria-hidden
             className="pointer-events-none fixed top-0 left-0 z-[55] drop-shadow-[0_10px_8px_rgb(0_0_0/0.35)]"
-            style={{ width: SIZE, height: SIZE, transform: "translate(-999px, -999px)" }}
+            style={{ width: SIZE, height: SIZE, translate: "-999px -999px" }}
           />
           <div
             ref={(el) => {
               bubbleRefs.current[i] = el;
             }}
             aria-live="polite"
-            className="pointer-events-none fixed top-0 left-0 z-[56] rounded-full bg-neutral-950 px-3 py-1 text-[13px] whitespace-nowrap text-white opacity-0 transition-opacity dark:bg-white dark:text-neutral-950"
-          />
+            className="pointer-events-none fixed top-0 left-0 z-[56] rounded-full bg-neutral-950 px-3 py-1 text-[13px] whitespace-nowrap text-white opacity-0 dark:bg-white dark:text-neutral-950"
+          >
+            <span />
+            <span className="absolute top-full left-0 h-[6px] w-[12px] bg-inherit [clip-path:polygon(0_0,100%_0,50%_100%)]" />
+          </div>
         </Fragment>
       ))}
       {/* absolute: out of the nav's flex flow, without trapping the z-indexes below */}
       <div role="dialog" aria-modal="true" aria-label={`Catch ${playing}`} hidden={!playing} className="absolute">
-        <canvas ref={overlayRef} className="fixed inset-0 z-50 size-full bg-black/5 dark:bg-black/30" />
-        <figure className="fixed right-4 bottom-4 z-[60]" style={{ width: BOX_W }}>
+        <canvas ref={overlayRef} data-away="none" className="fixed inset-0 z-50 size-full bg-black/5 dark:bg-black/30" />
+        <figure data-away="translateY(25%)" className="fixed right-4 bottom-4 z-[60]" style={{ width: BOX_W }}>
           <div className="relative border border-white/80 bg-black" style={{ height: BOX_H }}>
             {/* the video feeds the tracker but is never shown */}
             <video ref={videoRef} playsInline muted className="absolute inset-0 size-full opacity-0" />
             <canvas ref={handRef} className="absolute inset-0 size-full" />
+            <span ref={scanRef} className="absolute inset-x-0 top-0 h-px bg-red-500 shadow-[0_0_6px_1px_rgb(239_68_68/0.6)]" />
             {["top-0 left-0 border-t-2 border-l-2", "top-0 right-0 border-t-2 border-r-2", "bottom-0 left-0 border-b-2 border-l-2", "bottom-0 right-0 border-r-2 border-b-2"].map((c) => (
               <span key={c} className={`absolute -m-1 size-3 border-red-500 ${c}`} />
             ))}
           </div>
-          <span ref={hintRef} className="block border-x border-b border-white/80 bg-white py-1 text-center font-mono text-xs text-black" />
+          <span ref={hintRef} className="block border-x border-b border-white/80 bg-white py-1 text-center font-mono text-xs text-black data-error:text-red-600" />
           <figcaption className="mt-1.5 text-center font-mono text-[10px] text-neutral-500">camera stays on your device</figcaption>
         </figure>
-        <div className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex justify-center px-4">
+        <div data-away="translateY(-150%)" className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex justify-center px-4">
           <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-neutral-200 bg-white/85 py-1.5 pr-1.5 pl-4 text-sm shadow-sm backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/85">
             <span className="text-neutral-900 dark:text-white">
-              {playing} · caught <span className="tabular-nums">{caught}</span>
+              {playing} · caught{" "}
+              <span ref={countRef} className="inline-block tabular-nums">
+                {caught}
+              </span>
             </span>
             <button
               type="button"

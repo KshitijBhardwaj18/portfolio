@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { GiBatwingEmblem } from "react-icons/gi";
-import { Heroes } from "./heroes";
+import { EASE, Heroes } from "./heroes";
 import { SIGNATURE_PATHS, SIGNATURE_VIEWBOX } from "./signature-paths";
 
 // One loop, in seconds: letters are signed one after another, the signature
@@ -87,10 +87,18 @@ export function Footer() {
         {heroes && (
           <button
             type="button"
-            onClick={() => setBatman((on) => !on)}
+            onClick={(e) => {
+              // a little wing flap on summon
+              if (!batman && !matchMedia("(prefers-reduced-motion: reduce)").matches)
+                e.currentTarget.firstElementChild?.animate(
+                  { transform: ["none", "scaleX(0.4)", "scaleX(1.15)", "none"] },
+                  { duration: 350, easing: EASE.move },
+                );
+              setBatman((on) => !on);
+            }}
             aria-label={batman ? "Send Batman home" : "Summon Batman"}
             aria-pressed={batman}
-            className="cursor-pointer rounded p-0.5 opacity-25 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+            className="cursor-pointer rounded p-0.5 opacity-25 transition-[opacity,scale] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:opacity-100 focus-visible:opacity-100 active:duration-100 motion-safe:active:scale-92 aria-pressed:opacity-100"
           >
             <GiBatwingEmblem className="size-3.5" />
           </button>
