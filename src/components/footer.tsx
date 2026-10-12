@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { GiBatwingEmblem } from "react-icons/gi";
+import { Heroes } from "./heroes";
 import { SIGNATURE_PATHS, SIGNATURE_VIEWBOX } from "./signature-paths";
 
 // One loop, in seconds: letters are signed one after another, the signature
@@ -18,6 +21,8 @@ const f = (t: number) => (t / CYCLE).toFixed(4);
 // the ink fills in just behind it, like the name being written by hand.
 export function Footer() {
   const svg = useRef<SVGSVGElement>(null);
+  const heroes = !usePathname().startsWith("/admin"); // Iron Man everywhere but the editor
+  const [batman, setBatman] = useState(false); // easter egg: the faint bat summons Batman
 
   useEffect(() => {
     const el = svg.current!;
@@ -77,7 +82,36 @@ export function Footer() {
           })}
         </g>
       </svg>
-      <p className="text-xs text-neutral-400 dark:text-neutral-600">© {new Date().getFullYear()} Kshitij Bhardwaj</p>
+      <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-600">
+        © {new Date().getFullYear()} Kshitij Bhardwaj
+        {heroes && (
+          <button
+            type="button"
+            onClick={() => setBatman((on) => !on)}
+            aria-label={batman ? "Send Batman home" : "Summon Batman"}
+            aria-pressed={batman}
+            className="cursor-pointer rounded p-0.5 opacity-25 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+          >
+            <GiBatwingEmblem className="size-3.5" />
+          </button>
+        )}
+      </p>
+      {heroes && <Heroes batman={batman} />}
+      <p hidden={!heroes} className="text-[10px] text-neutral-400 dark:text-neutral-600">
+        <a href="https://sketchfab.com/3d-models/iron-man-69dde1ad49e94852984e3d83928efd65" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+          Iron Man
+        </a>{" "}
+        by Grant Riley (CC BY-NC)
+        {batman && (
+          <>
+            {" · "}
+            <a href="https://sketchfab.com/3d-models/arkham-city-batman-648984b9b606483383260c25099d81b9" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+              Batman
+            </a>{" "}
+            by LKFisto1707 (CC BY 4.0)
+          </>
+        )}
+      </p>
     </footer>
   );
 }
