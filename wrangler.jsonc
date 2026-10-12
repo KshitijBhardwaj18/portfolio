@@ -1,10 +1,12 @@
 // One script, two Workers (see worker/index.ts):
-//   npx wrangler deploy              -> portfolio        (public site)
-//   npx wrangler deploy --env admin  -> portfolio-admin  (behind Cloudflare Access)
+//   npx wrangler deploy              -> portfolio        (public site, kshitijbhardwaj.space)
+//   npx wrangler deploy --env admin  -> portfolio-admin  (behind Cloudflare Access, admin.kshitijbhardwaj.space)
 {
   "name": "portfolio",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "kshitijbhardwaj.space", "custom_domain": true }],
+  "workers_dev": false, // the domains are the only addresses
   "assets": {
     "directory": "./out",
     "binding": "ASSETS",
@@ -19,6 +21,8 @@
   "env": {
     "admin": {
       "name": "portfolio-admin",
+      "routes": [{ "pattern": "admin.kshitijbhardwaj.space", "custom_domain": true }], // its root redirects to /admin
+      "workers_dev": false,
       "assets": {
         "directory": "./out",
         "binding": "ASSETS",
