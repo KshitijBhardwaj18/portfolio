@@ -10,6 +10,14 @@ const PRODUCTS = [
       "Puts your person in your MacBook notch: their face, their mood, and the whispers, kisses and photos you send each other.",
     tags: ["macOS", "One license, two Macs"],
   },
+  {
+    name: "BoardAthlete",
+    url: "https://boardathlete.com",
+    image: "https://boardathlete.com/og.png",
+    description:
+      "A typing game where your athlete runs exactly as fast as you type. Type fast and they sprint, mistype and they stumble, stop and they stand.",
+    tags: ["Web", "Free", "Needs a keyboard"],
+  },
 ];
 
 export function Products() {
@@ -39,8 +47,10 @@ export function Products() {
 
             <div className="flex min-w-0 flex-1 flex-col gap-3 px-1 pb-1 sm:p-0">
               <div className="flex items-center gap-2.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.logo} alt="" className="size-7 rounded-lg" />
+                {p.logo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.logo} alt="" className="size-7 rounded-lg" />
+                )}
                 <span className="font-serif text-2xl leading-none">{p.name}</span>
                 <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-500 dark:border-white/10 dark:text-neutral-400">
                   <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
