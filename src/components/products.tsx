@@ -13,6 +13,7 @@ const PRODUCTS = [
   {
     name: "BoardAthlete",
     url: "https://boardathlete.com",
+    logo: "/logos/boardathlete.svg",
     image: "https://boardathlete.com/og.png",
     description:
       "A typing game where your athlete runs exactly as fast as you type. Type fast and they sprint, mistype and they stumble, stop and they stand.",
