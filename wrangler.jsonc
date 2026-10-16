@@ -5,14 +5,17 @@
   "name": "portfolio",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
-  "routes": [{ "pattern": "kshitijbhardwaj.space", "custom_domain": true }],
+  "routes": [
+    { "pattern": "kshitijbhardwaj.space", "custom_domain": true },
+    { "pattern": "ironman.kshitijbhardwaj.space", "custom_domain": true } // react-iron-man docs: / serves /iron-man
+  ],
   "workers_dev": false, // the domains are the only addresses
   "assets": {
     "directory": "./out",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
     // Images, and keeping /admin and /api off the public site.
-    "run_worker_first": ["/api/*", "/media/*", "/admin", "/admin/*"]
+    "run_worker_first": ["/", "/api/*", "/media/*", "/admin", "/admin/*"]
   },
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portfolio-media" }],
   "vars": { "GITHUB_REPO": "KshitijBhardwaj18/portfolio", "GITHUB_BRANCH": "main" },

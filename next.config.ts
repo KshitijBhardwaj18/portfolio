@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "export",
   images: { unoptimized: true },
+  transpilePackages: ["react-iron-man"], // the workspace package is TypeScript source until published
   pageExtensions: ["ts", "tsx"],
   turbopack: {
     rules: {

@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { GiBatwingEmblem } from "react-icons/gi";
-import { EASE, Heroes } from "./heroes";
+import { EASE, Heroes } from "react-iron-man";
 import { SIGNATURE_PATHS, SIGNATURE_VIEWBOX } from "./signature-paths";
 
 // One loop, in seconds: letters are signed one after another, the signature
@@ -14,6 +14,9 @@ const TRACE = 0.55; // how long the pen takes on one letter
 const INK = 0.3; // fill catches up behind the pen
 const FADE_AT = 17;
 const FADE_LEN = 0.6;
+
+// Self-hosted copies, so the site never depends on the CDN.
+const MODELS = { ironMan: "/models/iron-man.glb", batman: "/models/batman.glb" };
 
 const f = (t: number) => (t / CYCLE).toFixed(4);
 
@@ -104,7 +107,7 @@ export function Footer() {
           </button>
         )}
       </p>
-      {heroes && <Heroes batman={batman} />}
+      {heroes && <Heroes batman={batman} models={MODELS} />}
       <p hidden={!heroes} className="text-[10px] text-neutral-400 dark:text-neutral-600">
         <a href="https://sketchfab.com/3d-models/iron-man-69dde1ad49e94852984e3d83928efd65" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
           Iron Man

@@ -40,6 +40,7 @@ export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     try {
+      if (url.hostname.startsWith("ironman.") && url.pathname === "/") return env.ASSETS.fetch(new URL("/iron-man", url));
       if (url.pathname.startsWith("/media/")) return (await media(url, env)) ?? env.ASSETS.fetch(request);
       const adminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/");
       if (!env.SITE) return adminPath ? new Response("Not found", { status: 404 }) : env.ASSETS.fetch(request);

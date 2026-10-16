@@ -10,6 +10,9 @@ const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
 const HAND_MODEL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
+// Models are served from jsDelivr by default; pass `models` to self-host them.
+const CDN = "https://cdn.jsdelivr.net/npm/react-iron-man@0.1.0/models"; // ponytail: bump with package.json version
+
 const SIZE = 180; // css px of each hero's canvas, room to rotate and for the flames; they're ~110px tall
 const TAU = Math.PI * 2;
 // MediaPipe hand landmarks: finger chains and the palm, for the hand outline in the camera box.
@@ -17,6 +20,12 @@ const FINGERS = [[0, 1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16
 const PALM = [0, 1, 5, 9, 13, 17];
 const BOX_W = 192; // camera box, css px (4:3)
 const BOX_H = 144;
+const CORNERS = [
+  { top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2 },
+  { top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2 },
+  { bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2 },
+  { bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2 },
+];
 // Motion: things arrive easing out and leave easing in, state changes ease in-out,
 // and the spring overshoots a touch for playful pops.
 export const EASE = {
@@ -29,11 +38,11 @@ export const EASE = {
 type Lines = Record<"hi" | "scroll" | "cross" | "poke" | "dodge" | "hot" | "caught" | "free", string[]>;
 type Spec = { name: string; model: string; jets: number[][]; cruise: number; lines: Lines };
 
-// The cast. Models are credited in the footer.
+// The cast. Iron Man by Grant Riley (CC BY-NC), Batman by LKFisto1707 (CC BY 4.0): credit them on your site.
 const HEROES: Spec[] = [
   {
     name: "Iron Man",
-    model: "/models/iron-man.glb",
+    model: `${CDN}/iron-man.glb`,
     // Thrusters in model units: boot soles, then palm repulsors.
     jets: [[-210, 0, 0, 1], [210, 0, 0, 1], [-498, 1039, 58, 0.55], [498, 1039, 58, 0.55]],
     cruise: 650, // px/s around the margins
@@ -53,7 +62,7 @@ const HEROES: Spec[] = [
   },
   {
     name: "Batman",
-    model: "/models/batman.glb",
+    model: `${CDN}/batman.glb`,
     jets: [], // no thrusters: he glides on the cape
     cruise: 420,
     lines: {
@@ -93,12 +102,21 @@ const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 
 type Mode = "pet" | "fly" | "hot" | "held" | "tossed";
 
+export type HeroesProps = {
+  /** Batman joins Iron Man while true. */
+  batman?: boolean;
+  /** Self-hosted model URLs, instead of jsDelivr. */
+  models?: { ironMan?: string; batman?: string };
+  /** Width of your page's centred content column, px: they keep to the margins beside it. */
+  contentWidth?: number;
+};
+
 // Iron Man lives in the page's side margin; Batman joins him in the other one
-// when summoned (the footer's bat). They watch your cursor, heckle what you point
+// when summoned. They watch your cursor, heckle what you point
 // at and each other, swap sides now and then, and get left behind when you
 // scroll. Poke one and the page becomes the playground. Only a real hand (webcam)
 // can catch them: pinch right on him to grab, let go to toss.
-export function Heroes({ batman }: { batman: boolean }) {
+export function Heroes({ batman = false, models, contentWidth = 900 }: HeroesProps) {
   const [playing, setPlaying] = useState<string | null>(null); // who's being chased
   const [caught, setCaught] = useState(0);
   const figRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -154,8 +172,9 @@ export function Heroes({ batman }: { batman: boolean }) {
 
     const start0 = performance.now();
     // Iron Man starts low on the right; Batman waits offstage until summoned.
+    const urls = [models?.ironMan, models?.batman];
     const heroes = HEROES.map((spec, i) => ({
-      spec, i, on: i === 0, leaving: false, loading: false,
+      spec: { ...spec, model: urls[i] ?? spec.model }, i, on: i === 0, leaving: false, loading: false,
       fig: figRefs.current[i]!, poke: pokeRefs.current[i]!, bubble: bubbleRefs.current[i]!,
       // the bubble holds the line, then its tail
       text: bubbleRefs.current[i]!.firstElementChild as HTMLElement, tail: bubbleRefs.current[i]!.lastElementChild as HTMLElement,
@@ -424,7 +443,7 @@ export function Heroes({ batman }: { batman: boolean }) {
         h.homeY = r < 0.45 ? rand(H * 0.12, H * 0.22) : r < 0.9 ? rand(H * 0.78, H * 0.88) : rand(H * 0.4, H * 0.6);
         h.wander = now + rand(4000, 9000);
       }
-      const gutter = (W - 900) / 2; // page content is ~900px wide and centred
+      const gutter = (W - contentWidth) / 2; // beside the centred content column
       const edge = gutter > 140 ? gutter / 2 : M;
       h.tx = (h.i ? -side : side) > 0 ? (h.leaving ? W + SIZE : W - edge) : h.leaving ? -SIZE : edge;
       h.ty = still ? H * (h.i ? 0.18 : 0.82) : h.homeY;
@@ -691,12 +710,14 @@ export function Heroes({ batman }: { batman: boolean }) {
       removeEventListener("pointerover", onOver);
       removeEventListener("scroll", onScroll);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- props are read once, at mount
   }, []);
 
   useEffect(() => game.current.setBatman(batman), [batman]);
 
   return (
     <>
+      <style>{CSS}</style>
       {HEROES.map((h, i) => (
         <Fragment key={h.name}>
           <button
@@ -707,7 +728,7 @@ export function Heroes({ batman }: { batman: boolean }) {
             aria-label={`Poke ${h.name} to play catch`}
             onClick={() => game.current.start(i)}
             hidden={playing === h.name || (i === 1 && !batman)}
-            className="fixed top-0 left-0 z-40 size-16 cursor-pointer rounded-full outline-amber-400 before:absolute before:inset-0 before:rounded-full before:bg-amber-400/15 before:opacity-0 before:ring-1 before:ring-amber-400/50 before:transition-opacity before:duration-150 before:ease-[cubic-bezier(0.16,1,0.3,1)] hover:before:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:before:opacity-100"
+            className="rim-poke"
             style={{ translate: "-999px -999px" }}
           />
           <canvas
@@ -715,7 +736,7 @@ export function Heroes({ batman }: { batman: boolean }) {
               figRefs.current[i] = el;
             }}
             aria-hidden
-            className="pointer-events-none fixed top-0 left-0 z-[55] drop-shadow-[0_10px_8px_rgb(0_0_0/0.35)]"
+            className="rim-fig"
             style={{ width: SIZE, height: SIZE, translate: "-999px -999px" }}
           />
           <div
@@ -723,46 +744,39 @@ export function Heroes({ batman }: { batman: boolean }) {
               bubbleRefs.current[i] = el;
             }}
             aria-live="polite"
-            className="pointer-events-none fixed top-0 left-0 z-[56] rounded-full bg-neutral-950 px-3 py-1 text-[13px] whitespace-nowrap text-white opacity-0 dark:bg-white dark:text-neutral-950"
+            className="rim-bubble"
           >
             <span />
-            <span className="absolute top-full left-0 h-[6px] w-[12px] bg-inherit [clip-path:polygon(0_0,100%_0,50%_100%)]" />
+            <span className="rim-tail" />
           </div>
         </Fragment>
       ))}
-      {/* absolute: out of the nav's flex flow, without trapping the z-indexes below */}
-      <div role="dialog" aria-modal="true" aria-label={`Catch ${playing}`} hidden={!playing} className="absolute">
-        <canvas ref={overlayRef} data-away="none" className="fixed inset-0 z-50 size-full bg-black/5 dark:bg-black/30" />
-        <figure data-away="translateY(25%)" className="fixed right-4 bottom-4 z-[60]" style={{ width: BOX_W }}>
-          <div className="relative border border-white/80 bg-black" style={{ height: BOX_H }}>
+      {/* absolute: out of any flex flow, without trapping the z-indexes below */}
+      <div role="dialog" aria-modal="true" aria-label={`Catch ${playing}`} hidden={!playing} className="rim-game">
+        <canvas ref={overlayRef} data-away="none" className="rim-overlay" />
+        <figure data-away="translateY(25%)" className="rim-cam">
+          <div className="rim-box">
             {/* the video feeds the tracker but is never shown */}
-            <video ref={videoRef} playsInline muted className="absolute inset-0 size-full opacity-0" />
-            <canvas ref={handRef} className="absolute inset-0 size-full" />
-            <span ref={scanRef} className="absolute inset-x-0 top-0 h-px bg-red-500 shadow-[0_0_6px_1px_rgb(239_68_68/0.6)]" />
-            {["top-0 left-0 border-t-2 border-l-2", "top-0 right-0 border-t-2 border-r-2", "bottom-0 left-0 border-b-2 border-l-2", "bottom-0 right-0 border-r-2 border-b-2"].map((c) => (
-              <span key={c} className={`absolute -m-1 size-3 border-red-500 ${c}`} />
+            <video ref={videoRef} playsInline muted className="rim-fill" style={{ opacity: 0 }} />
+            <canvas ref={handRef} className="rim-fill" />
+            <span ref={scanRef} className="rim-scan" />
+            {CORNERS.map((c, i) => (
+              <span key={i} className="rim-corner" style={c} />
             ))}
           </div>
-          <span ref={hintRef} className="block border-x border-b border-white/80 bg-white py-1 text-center font-mono text-xs text-black data-error:text-red-600" />
-          <figcaption className="mt-1.5 text-center font-mono text-[10px] text-neutral-500">camera stays on your device</figcaption>
+          <span ref={hintRef} className="rim-hint" />
+          <figcaption className="rim-note">camera stays on your device</figcaption>
         </figure>
-        <div data-away="translateY(-150%)" className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex justify-center px-4">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-neutral-200 bg-white/85 py-1.5 pr-1.5 pl-4 text-sm shadow-sm backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/85">
-            <span className="text-neutral-900 dark:text-white">
+        <div data-away="translateY(-150%)" className="rim-hud">
+          <div className="rim-pill">
+            <span>
               {playing} · caught{" "}
-              <span ref={countRef} className="inline-block tabular-nums">
+              <span ref={countRef} className="rim-count">
                 {caught}
               </span>
             </span>
-            <button
-              type="button"
-              onClick={() => game.current.stop()}
-              className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-white/5 dark:hover:text-white"
-            >
-              Exit
-              <kbd className="rounded border border-neutral-200 px-1 font-sans text-[10px] leading-none text-neutral-400 dark:border-neutral-800 dark:text-neutral-600">
-                Esc
-              </kbd>
+            <button type="button" onClick={() => game.current.stop()} className="rim-exit">
+              Exit <kbd>Esc</kbd>
             </button>
           </div>
         </div>
@@ -770,3 +784,37 @@ export function Heroes({ batman }: { batman: boolean }) {
     </>
   );
 }
+
+// Plain CSS so it works without Tailwind. Dark mode follows a `.dark` or
+// `[data-theme="dark"]` ancestor.
+const D = (sel: string) => `:where(.dark, [data-theme="dark"]) ${sel}`;
+const CSS = `
+.rim-poke{position:fixed;top:0;left:0;z-index:40;width:64px;height:64px;padding:0;border:0;border-radius:9999px;background:none;cursor:pointer}
+.rim-poke::before{content:"";position:absolute;inset:0;border-radius:inherit;background:rgb(251 191 36/.15);box-shadow:0 0 0 1px rgb(251 191 36/.5);opacity:0;transition:opacity .15s ${EASE.enter}}
+.rim-poke:hover::before,.rim-poke:focus-visible::before{opacity:1}
+.rim-poke:focus-visible{outline:2px solid #fbbf24;outline-offset:2px}
+.rim-fig{pointer-events:none;position:fixed;top:0;left:0;z-index:55;filter:drop-shadow(0 10px 8px rgb(0 0 0/.35))}
+.rim-bubble{pointer-events:none;position:fixed;top:0;left:0;z-index:56;border-radius:9999px;padding:4px 12px;background:#0a0a0a;color:#fff;font-size:13px;line-height:1.5;white-space:nowrap;opacity:0}
+.rim-tail{position:absolute;top:100%;left:0;width:12px;height:6px;background:inherit;clip-path:polygon(0 0,100% 0,50% 100%)}
+.rim-game{position:absolute}
+.rim-overlay{position:fixed;inset:0;z-index:50;width:100%;height:100%;background:rgb(0 0 0/.05)}
+.rim-cam{position:fixed;right:16px;bottom:16px;z-index:60;width:${BOX_W}px;margin:0}
+.rim-box{position:relative;height:${BOX_H}px;border:1px solid rgb(255 255 255/.8);background:#000}
+.rim-fill{position:absolute;inset:0;width:100%;height:100%}
+.rim-scan{position:absolute;inset:0 0 auto;height:1px;background:#ef4444;box-shadow:0 0 6px 1px rgb(239 68 68/.6)}
+.rim-corner{position:absolute;width:12px;height:12px;margin:-4px;border:0 solid #ef4444}
+.rim-hint{display:block;padding:4px 0;border:1px solid rgb(255 255 255/.8);border-top:0;background:#fff;color:#000;text-align:center;font:12px/1.33 ui-monospace,monospace}
+.rim-hint[data-error]{color:#dc2626}
+.rim-note{margin-top:6px;text-align:center;font:10px/1.5 ui-monospace,monospace;color:#737373}
+.rim-hud{pointer-events:none;position:fixed;inset:16px 0 auto;z-index:60;display:flex;justify-content:center;padding:0 16px}
+.rim-pill{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:6px 6px 6px 16px;border:1px solid #e5e5e5;border-radius:9999px;background:rgb(255 255 255/.85);color:#171717;font-size:14px;line-height:1.43;box-shadow:0 1px 2px rgb(0 0 0/.05);backdrop-filter:blur(8px)}
+.rim-count{display:inline-block;font-variant-numeric:tabular-nums}
+.rim-exit{display:flex;align-items:center;gap:6px;padding:2px 10px;border:0;border-radius:9999px;background:none;color:#737373;font:inherit;cursor:pointer;transition:color .15s,background-color .15s}
+.rim-exit:hover{background:#f5f5f5;color:#171717}
+.rim-exit kbd{padding:0 4px;border:1px solid #e5e5e5;border-radius:4px;color:#a3a3a3;font-family:inherit;font-size:10px;line-height:1.4}
+${D(".rim-bubble")}{background:#fff;color:#0a0a0a}
+${D(".rim-overlay")}{background:rgb(0 0 0/.3)}
+${D(".rim-pill")}{border-color:#262626;background:rgb(23 23 23/.85);color:#fff}
+${D(".rim-exit:hover")}{background:rgb(255 255 255/.05);color:#fff}
+${D(".rim-exit kbd")}{border-color:#262626;color:#525252}
+`;

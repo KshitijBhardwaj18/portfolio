@@ -1,0 +1,32 @@
+{
+  "name": "react-iron-man",
+  "version": "0.1.0",
+  "description": "Iron Man flies around your React site, heckles your visitors, and plays catch with their real hand through the webcam.",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://ironman.kshitijbhardwaj.space",
+  "repository": { "type": "git", "url": "git+https://github.com/KshitijBhardwaj18/portfolio.git", "directory": "packages/react-iron-man" },
+  "keywords": ["react", "iron-man", "three", "webgl", "easter-egg", "hand-tracking"],
+  "type": "module",
+  "sideEffects": false,
+  "exports": { ".": "./src/index.tsx" },
+  "publishConfig": {
+    "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } }
+  },
+  "files": ["dist", "models", "LICENSE.md"],
+  "scripts": {
+    "build": "tsc -p .",
+    "prepublishOnly": "tsc -p ."
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.35",
+    "three": "^0.186.1"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/three": "0.186.0",
+    "typescript": "^5"
+  }
+}
